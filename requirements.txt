@@ -1,0 +1,3 @@
+python-dotenv==1.2.4
+# simplifies http request and response
+openai==3.41.0
