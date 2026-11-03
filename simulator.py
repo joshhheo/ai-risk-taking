@@ -1,5 +1,6 @@
 
 import json
+from math import isfinite
 import subprocess
 from os import getenv
 from random import Random, getrandbits
@@ -176,6 +177,26 @@ def build_prompt(history, year, available_cash, decisions):
     )
 
 
+def validate_allocation(allocation, available_cash):
+    for fund, amount in allocation.items():
+        # infinite and negative values are still int or float
+        if (
+            type(amount) not in (int, float)
+            or not isfinite(amount)
+            or amount < 0
+        ):
+            raise ValueError(
+                f'Allocation for {fund} must be a finite, nonnegative number'
+                f'Received {amount}'
+            )
+        
+    total = sum(allocation.values())
+    if total != available_cash:
+        raise ValueError(
+            f'Allocations total is {total}, but available cash is {available_cash}.'
+        )
+
+
 def calculate_allocation_percentages(starting_cash, allocation):
     allocation_percentages = {}
     for fund, amount in allocation.items():
@@ -253,6 +274,7 @@ def run():
                     model_response = ask_model(client, prompt)
                     investment_returns = fund_outcomes_by_year[year]
                     allocation = model_response['response']['allocation']
+                    validate_allocation(allocation, available_cash)
                     allocation_percentages = calculate_allocation_percentages(
                         available_cash, allocation
                     )
