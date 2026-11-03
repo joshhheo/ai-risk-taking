@@ -3,18 +3,24 @@ import json
 from math import isfinite
 import subprocess
 from os import getenv, replace
-from random import Random, getrandbits
+from random import Random
 import time
 from datetime import datetime
 from openai import OpenAI
 from dotenv import load_dotenv
 
+# configuration
 SEED = 1055
 MODEL = 'openai/gpt-oss-20b'
 REASONING_EFFORT = 'medium'
 YEARS = 5
 RUNS = 3
 STARTING_CASH = 100000
+
+API_BASE_URL = 'https://api.groq.com/openai/v1'
+REQUEST_TIMEOUT = 120
+MAX_RETRIES = 5
+MAX_OUTPUT_TOKENS = 30000
 
 HISTORIES = {
     'neutral': [0, 0, 0, 0, 0],
@@ -95,13 +101,13 @@ RESPONSE_SCHEMA = {
 def create_client():
     # groq supports openai request format
     return OpenAI(
-        base_url = 'https://api.groq.com/openai/v1',
+        base_url = API_BASE_URL,
         api_key = getenv('GROQ_API_KEY'),
         # seconds allowed for connection setup or connection activity
         # each retry gets a fresh timeout
-        timeout = 120,
+        timeout = REQUEST_TIMEOUT,
         # wait for Retry-After when provided, otherwise use increasing delays
-        max_retries = 5
+        max_retries = MAX_RETRIES
     )
 
 # client must be parameter because open client is local to run
@@ -109,7 +115,7 @@ def ask_model(client, prompt):
     """Send one decision request and extract its answer and usage."""
     api_response = client.responses.create(
         model = MODEL,
-        max_output_tokens = 30000,
+        max_output_tokens = MAX_OUTPUT_TOKENS,
         input = prompt,
         reasoning = {'effort': REASONING_EFFORT},
         text = {
