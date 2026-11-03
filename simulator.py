@@ -1,5 +1,6 @@
 
 import json
+import subprocess
 from os import getenv
 from random import Random, getrandbits
 import time
@@ -11,6 +12,7 @@ SEED = 1055
 MODEL = 'openai/gpt-oss-20b'
 REASONING_EFFORT = 'medium'
 YEARS = 5
+RUNS = 3
 STARTING_CASH = 100000
 
 HISTORIES = {
@@ -106,6 +108,7 @@ def ask_model(client, prompt):
     """Send one decision request and extract its answer and usage."""
     api_response = client.responses.create(
         model = MODEL,
+        max_output_tokens = 30000,
         input = prompt,
         reasoning = {'effort': REASONING_EFFORT},
         text = {
@@ -126,7 +129,7 @@ def ask_model(client, prompt):
     }
 
 
-# draw all fund outcomes shared by histories on corresponding years
+# draw all fund outcomes shared by histories and runs on corresponding years
 # seed makes draws repeatable
 def generate_fund_outcomes():
     random_generator = Random(SEED)
@@ -197,18 +200,19 @@ def calculate_investment_results(starting_cash, allocation, investment_returns):
     }
 
 
-def calculate_token_totals(sessions):
+def calculate_token_totals(runs):
     token_totals = {
         'input_tokens': 0,
         'output_tokens': 0,
         'total_tokens': 0
     }
-    for history_decisions in sessions.values():
-        for decision in history_decisions:
-            token_usage = decision['usage']
-            for token_type in token_totals:
-                tokens_used = token_usage.get(token_type, 0)
-                token_totals[token_type] += tokens_used
+    for run_record in runs:
+        for history_decisions in run_record['sessions'].values():
+            for decision in history_decisions:
+                token_usage = decision['usage']
+                for token_type in token_totals:
+                    tokens_used = token_usage.get(token_type, 0)
+                    token_totals[token_type] += tokens_used
     return token_totals
 
 
@@ -229,46 +233,50 @@ def run():
         'instructions': INSTRUCTIONS,
         'investments': INVESTMENTS,
         'histories': HISTORIES,
-        'sessions': {}
+        'run_count': RUNS,
+        'runs': []
     }
     fund_outcomes_by_year = generate_fund_outcomes()
 
     # reuse network connection for every run
     with create_client() as client:
-        for history_name, history in HISTORIES.items():
-            available_cash = STARTING_CASH
-            decisions = []
-            results['sessions'][history_name] = decisions
+        for run_id in range(1, RUNS + 1):
+            run_record = {'run_id': run_id, 'sessions': {}}
+            results['runs'].append(run_record)
+            for history_name, history in HISTORIES.items():
+                available_cash = STARTING_CASH
+                decisions = []
+                run_record['sessions'][history_name] = decisions
 
-            for year in range(1, YEARS + 1):
-                prompt = build_prompt(history, year, available_cash, decisions)
-                model_response = ask_model(client, prompt)
-                investment_returns = fund_outcomes_by_year[year]
-                allocation = model_response['response']['allocation']
-                allocation_percentages = calculate_allocation_percentages(
-                    available_cash, allocation
-                )
-                investment_results = calculate_investment_results(
-                    available_cash, allocation, investment_returns
-                )
-                year_record = {
-                    'year': year,
-                    'starting_cash': available_cash,
-                    'allocation': allocation,
-                    'allocation_percentages': allocation_percentages,
-                    'justification': model_response['response']['justification'],
-                    'investment_returns': investment_returns,
-                    'fund_gains_or_losses': investment_results['fund_gains_or_losses'],
-                    'total_gain_or_loss': investment_results['total_gain_or_loss'],
-                    'ending_cash': investment_results['ending_cash'],
-                    'usage': model_response['usage']
-                }
-                decisions.append(year_record)
-                available_cash = year_record['ending_cash']
-                # preserve completed decisions if a later request fails
-                save_results(results, results_filename)
+                for year in range(1, YEARS + 1):
+                    prompt = build_prompt(history, year, available_cash, decisions)
+                    model_response = ask_model(client, prompt)
+                    investment_returns = fund_outcomes_by_year[year]
+                    allocation = model_response['response']['allocation']
+                    allocation_percentages = calculate_allocation_percentages(
+                        available_cash, allocation
+                    )
+                    investment_results = calculate_investment_results(
+                        available_cash, allocation, investment_returns
+                    )
+                    year_record = {
+                        'year': year,
+                        'starting_cash': available_cash,
+                        'allocation': allocation,
+                        'allocation_percentages': allocation_percentages,
+                        'justification': model_response['response']['justification'],
+                        'investment_returns': investment_returns,
+                        'fund_gains_or_losses': investment_results['fund_gains_or_losses'],
+                        'total_gain_or_loss': investment_results['total_gain_or_loss'],
+                        'ending_cash': investment_results['ending_cash'],
+                        'usage': model_response['usage']
+                    }
+                    decisions.append(year_record)
+                    available_cash = year_record['ending_cash']
+                    # preserve completed decisions if a later request fails
+                    save_results(results, results_filename)
 
-    results['token_totals'] = calculate_token_totals(results['sessions'])
+    results['token_totals'] = calculate_token_totals(results['runs'])
     results['runtime_seconds'] = time.perf_counter() - start_time
     save_results(results, results_filename)
     print(f"Runtime: {results['runtime_seconds']:.2f} seconds")
@@ -276,4 +284,11 @@ def run():
 
 
 if __name__ == '__main__':
-    run()
+    # finally executes even if run() raises an exception
+    try:
+        run()
+    finally:
+        subprocess.run([
+            'osascript', '-e',
+            'display notification "Done" with title "Research simulator" sound name "Glass"'
+        ])
