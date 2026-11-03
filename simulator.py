@@ -2,7 +2,7 @@
 import json
 from math import isfinite
 import subprocess
-from os import getenv
+from os import getenv, replace
 from random import Random, getrandbits
 import time
 from datetime import datetime
@@ -236,10 +236,14 @@ def calculate_token_totals(runs):
                     token_totals[token_type] += tokens_used
     return token_totals
 
-
+# avoid clearing results file if new results are unavailable
 def save_results(results, filename):
-    with open(filename, 'w') as file:
+    temporary_filename = f'{filename}.tmp'
+    with open(temporary_filename, 'w') as file:
+        # dump converts python dict to json
+        # ensure_ascii = False keeps unicode charcters readable in file
         json.dump(results, file, indent = 4, ensure_ascii = False)
+    replace(temporary_filename, filename)
 
 # run manages all orchestration
 def run():
