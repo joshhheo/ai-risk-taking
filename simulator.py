@@ -1,6 +1,6 @@
 
 import json
-from math import isfinite
+from math import isclose, isfinite
 import subprocess
 from os import getenv, replace
 from random import Random
@@ -96,6 +96,69 @@ RESPONSE_SCHEMA = {
     'required': ['allocation', 'justification'],
     'additionalProperties': False
 }
+
+
+def validate_config():
+    if type(YEARS) is not int or YEARS <= 0:
+        raise ValueError('YEARS must be a positive integer.')
+
+    if type(RUNS) is not int or RUNS <= 0:
+        raise ValueError('RUNS must be a positive integer.')
+
+    # floats allow non finite values like NaN and inf
+    if (
+        type(STARTING_CASH) not in (int, float)
+        or not isfinite(STARTING_CASH)
+        or STARTING_CASH <= 0
+    ):
+        raise ValueError('STARTING_CASH must be a finite, positive number.')
+
+    if (
+        type(REQUEST_TIMEOUT) not in (int, float)
+        or not isfinite(REQUEST_TIMEOUT)
+        or REQUEST_TIMEOUT <= 0
+    ):
+        raise ValueError('REQUEST_TIMEOUT must be a finite, positive number.')
+
+    if not HISTORIES:
+        raise ValueError('HISTORIES must be a nonempty dictionary.')
+    for name, history in HISTORIES.items():
+        # no isinstance because bool is a subclass of int
+        if type(name) is not str or not name.strip():
+            raise ValueError('Each history must have a nonempty string name.')
+        # number of history years subject to change
+        if type(history) is not list or len(history) != 5:
+            raise ValueError(f'{name}: history must be a list of five annual outcomes.')
+        for outcome in history:
+            if type(outcome) not in (int, float) or not isfinite(outcome):
+                raise ValueError(f'{name}: every history outcome must be a finite number.')
+
+    if not INVESTMENTS:
+        raise ValueError('INVESTMENTS must be a nonempty dictionary.')
+    for fund, details in INVESTMENTS.items():
+        if type(fund) is not str or not fund.strip():
+            raise ValueError('Each fund must have a nonempty string name.')
+        return_rates = details['return_rates']
+        probabilities = details['probabilities']
+
+        for rate in return_rates:
+            if type(rate) not in (int, float) or not isfinite(rate):
+                raise ValueError(f'{fund}: every return must be a finite number.')
+
+        for probability in probabilities:
+            if (
+                type(probability) not in (int, float)
+                or not isfinite(probability)
+                or not 0 <= probability <= 1
+            ):
+                raise ValueError(
+                    f'{fund}: every probability must be a finite number between 0 and 1.'
+                )
+
+        total_probability = sum(probabilities)
+        # allow float rounding errors
+        if not isclose(total_probability, 1, rel_tol = 0, abs_tol = 1e-9):
+            raise ValueError(f'{fund}: probabilities must sum to 1.')
 
 
 def create_client():
@@ -253,6 +316,7 @@ def save_results(results, filename):
 
 # run manages all orchestration
 def run():
+    validate_config()
     start_time = time.perf_counter()
     load_dotenv()
     # YYYYMMDD-HHMMSS format file name
