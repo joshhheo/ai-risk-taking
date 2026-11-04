@@ -333,6 +333,8 @@ def run():
     }
     fund_outcomes_by_year = generate_fund_outcomes()
 
+    total_decisions = RUNS * len(HISTORIES) * YEARS
+    saved_decisions = 0
     # reuse network connection for every run
     with create_client() as client:
         for run_id in range(1, RUNS + 1):
@@ -371,6 +373,13 @@ def run():
                     available_cash = year_record['ending_cash']
                     # preserve completed decisions if a later request fails
                     save_results(results, results_filename)
+                    saved_decisions += 1
+                    # flush gets rid of output buffering
+                    print(
+                        f'Saved {saved_decisions}/{total_decisions} decisions | '
+                        f'run {run_id}/{RUNS} | {history_name} | year {year}/{YEARS}',
+                        flush=True
+                    )
 
     results['token_totals'] = calculate_token_totals(results['runs'])
     results['runtime_seconds'] = time.perf_counter() - start_time
